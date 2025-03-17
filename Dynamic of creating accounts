@@ -1,0 +1,156 @@
+with account_cnt as (select
+
+
+   s.date as date
+   ,sp.country as country
+   ,a.send_interval as send_interval
+   ,a.is_verified  as is_verified
+   ,a.is_unsubscribed as is_unsubscribed
+   ,count(a.id) as accounts
+   
+   from `DA.account_session` acs
+    join `DA.account` a
+   on acs.account_id = a.id
+   join `DA.session` s
+   on acs.ga_session_id = s.ga_session_id
+   join `DA.session_params` sp
+   on acs.ga_session_id = sp.ga_session_id
+group by 1,2,3,4,5
+),
+total_country_acc_cnt as (
+  select *
+  ,sum(accounts) over(partition by country) as total_country_account_count
+from account_cnt
+
+
+),
+acc_msg as (
+select
+   
+    date_add(s.date, INTERVAL es.sent_date day) as date
+    ,sp.country as country
+    ,a.send_interval
+   ,a.is_verified
+   ,a.is_unsubscribed
+    ,count(distinct es.id_message) as sent_msg
+    ,count(distinct eo.id_message) as open_msg
+    ,count(distinct ev.id_message) as visiting_msg
+
+
+ from `DA.email_sent` es
+ join `DA.account_session` acs
+ on es.id_account = acs.account_id
+ join `DA.session` s
+ on acs.ga_session_id = s.ga_session_id
+ 
+ left join `DA.email_open` eo
+ on es.id_message = eo.id_message
+left join `DA.email_visit` ev
+ on es.id_message = ev.id_message
+join `DA.session_params`sp
+on acs.ga_session_id = sp.ga_session_id
+join `DA.account` a
+on acs.account_id = a.id
+group by 1,2,3,4,5
+
+
+ ),
+
+
+ total_sent_cnt  as (
+
+
+
+
+  select *,
+  sum(sent_msg) over(partition by country ) as total_country_sent_cnt
+  from acc_msg
+
+
+ ),
+  union_cnt_and_acc as (
+
+
+
+
+  select
+    date
+   ,country
+   ,send_interval
+   ,is_verified
+   ,is_unsubscribed
+   ,accounts
+   ,0 as sent_msg
+    ,0 as open_msg
+    ,0 as visiting_msg
+    ,total_country_account_count
+    ,0 as total_country_sent_cnt
+from total_country_acc_cnt
+
+
+
+
+union all
+
+
+
+
+select
+  date
+   ,country
+   ,send_interval
+   ,is_verified
+   ,is_unsubscribed
+   ,0 as accounts
+   ,sent_msg
+    ,open_msg
+    ,visiting_msg
+    ,0 as total_country_account_count
+    ,total_country_sent_cnt
+from total_sent_cnt
+
+
+
+
+),
+united_numbers as (
+select
+  date
+  ,country
+  ,send_interval
+  ,is_verified
+  ,is_unsubscribed
+  ,sum(accounts) as accounts
+  ,sum(sent_msg) as sent_msg
+  ,sum(open_msg) as open_msg
+  ,sum(visiting_msg) as visiting_msg
+  ,MAX(total_country_account_count) as total_country_account_count
+  ,MAX(total_country_sent_cnt) as total_country_sent_cnt
+  from union_cnt_and_acc
+group by 1,2,3,4,5
+
+
+),
+
+
+total_ranking as  (
+  select *,
+  DENSE_RANK() OVER (ORDER BY total_country_account_count DESC) AS rank_total_country_account,
+  DENSE_RANK() OVER (ORDER BY total_country_sent_cnt DESC) AS rank_total_country_sent
+  from united_numbers
+
+
+
+
+)
+select *
+
+
+from total_ranking
+where rank_total_country_account <= 10 OR rank_total_country_sent <=10
+
+
+
+
+
+
